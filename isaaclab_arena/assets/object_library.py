@@ -55,6 +55,21 @@ class CrackerBox(LibraryObject):
 
 
 @register_asset
+class CrackerBoxSmall(LibraryObject):
+    """
+    0.8x scaled variant of the cracker box.
+    """
+
+    name = "cracker_box_small"
+    tags = ["object"]
+    usd_path = "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned_Physics/003_cracker_box.usd"
+    scale = (0.8, 0.8, 0.8)
+
+    def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
+        super().__init__(prim_path=prim_path, initial_pose=initial_pose)
+
+
+@register_asset
 class MustardBottle(LibraryObject):
     """
     Encapsulates the pick-up object config for a pick-and-place environment.
@@ -63,6 +78,21 @@ class MustardBottle(LibraryObject):
     name = "mustard_bottle"
     tags = ["object"]
     usd_path = "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd"
+
+    def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
+        super().__init__(prim_path=prim_path, initial_pose=initial_pose)
+
+
+@register_asset
+class MustardBottleSmall(LibraryObject):
+    """
+    0.8x scaled variant of the mustard bottle.
+    """
+
+    name = "mustard_bottle_small"
+    tags = ["object"]
+    usd_path = "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd"
+    scale = (0.8, 0.8, 0.8)
 
     def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
         super().__init__(prim_path=prim_path, initial_pose=initial_pose)
@@ -91,6 +121,21 @@ class TomatoSoupCan(LibraryObject):
     name = "tomato_soup_can"
     tags = ["object"]
     usd_path = "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd"
+
+    def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
+        super().__init__(prim_path=prim_path, initial_pose=initial_pose)
+
+
+@register_asset
+class TomatoSoupCanSmall(LibraryObject):
+    """
+    0.8x scaled variant of the tomato soup can.
+    """
+
+    name = "tomato_soup_can_small"
+    tags = ["object"]
+    usd_path = "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd"
+    scale = (0.8, 0.8, 0.8)
 
     def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
         super().__init__(prim_path=prim_path, initial_pose=initial_pose)
