@@ -57,7 +57,8 @@ class EmbodimentBase(Asset):
     def get_observation_cfg(self) -> Any:
         if self.enable_cameras:
             if self.camera_config is not None:
-                camera_observation_config = make_camera_observation_cfg(self.camera_config)
+                # normalize=False：mdp.image 在 normalize=True 时会对 RGB 做逐图减均值，保存视频/可视化会花屏、与视口不一致
+                camera_observation_config = make_camera_observation_cfg(self.camera_config, normalize=False)
                 return combine_configclass_instances(
                     "ObservationCfg",
                     self.observation_config,

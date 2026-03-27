@@ -19,9 +19,20 @@ from isaaclab_arena.metrics.object_moved import ObjectMovedRateMetric
 from isaaclab_arena.metrics.success_rate import SuccessRateMetric
 from isaaclab_arena.tasks.task_base import TaskBase
 from isaaclab_arena.tasks.terminations import object_on_destination
-from isaaclab_arena.terms.events import set_object_pose
+from isaaclab_arena.terms.events import set_object_pose, set_random_object_position
 from isaaclab_arena.utils.cameras import get_viewer_cfg_look_at_object
 
+import sys
+from pathlib import Path
+import os
+for _env_key in ("ISAACSIM_ARENA_COMMON_ROOT", "LEROBOT_CODE_ROOT"):
+    _root = os.environ.get(_env_key, "").strip()
+    if _root:
+        _p = Path(_root).expanduser().resolve()
+        if str(_p) not in sys.path:
+            sys.path.insert(0, str(_p))
+        break
+from isaacsim_arena_common.object_position import *
 
 class PickAndPlaceTask(TaskBase):
 
@@ -41,7 +52,7 @@ class PickAndPlaceTask(TaskBase):
                 contact_against_prim_paths=[self.destination_location.get_prim_path()],
             ),
         )
-        self.events_cfg = EventsCfg(pick_up_object=self.pick_up_object)
+        self.events_cfg = EventsCfg(pick_up_object=self.pick_up_object, background_scene=self.background_scene)
         self.termination_cfg = self.make_termination_cfg()
 
     def get_scene_cfg(self):
@@ -119,23 +130,34 @@ class EventsCfg:
 
     reset_pick_up_object_pose: EventTermCfg = MISSING
 
-    def __init__(self, pick_up_object: Asset):
-        initial_pose = pick_up_object.get_initial_pose()
-        if initial_pose is not None:
-            self.reset_pick_up_object_pose = EventTermCfg(
-                func=set_object_pose,
-                mode="reset",
-                params={
-                    "pose": initial_pose,
-                    "asset_cfg": SceneEntityCfg(pick_up_object.name),
-                },
-            )
-        else:
-            print(
-                f"Pick up object {pick_up_object.name} has no initial pose. Not setting reset pick up object pose"
-                " event."
-            )
-            self.reset_pick_up_object_pose = None
+    def __init__(self, pick_up_object: Asset, background_scene: Asset):
+        self.reset_pick_up_object_pose = EventTermCfg(
+            func=set_random_object_position,
+            mode="reset",
+            params={
+                "x_range": object_position_random_range[background_scene.name][pick_up_object.name]["x"],
+                "y_range": object_position_random_range[background_scene.name][pick_up_object.name]["y"], 
+                "z": object_position_random_range[background_scene.name][pick_up_object.name]["z"],
+                "asset_cfg": SceneEntityCfg(pick_up_object.name),
+            },
+        )
+        #initial_pose = pick_up_object.get_initial_pose()
+        #self.reset_pick_up_object_pose = EventTermCfg(
+        #    func=set_object_pose,
+        #    mode="reset",
+        #    params={
+        #        "pose": initial_pose,
+        #        "asset_cfg": SceneEntityCfg(pick_up_object.name),
+        #    },
+        #)
+
+
+        #else:
+        #    print(
+        #        f"Pick up object {pick_up_object.name} has no initial pose. Not setting reset pick up object pose"
+        #        " event."
+        #    )
+        #    self.reset_pick_up_object_pose = None
 
 
 @configclass

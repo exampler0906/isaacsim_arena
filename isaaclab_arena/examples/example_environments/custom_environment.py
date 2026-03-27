@@ -7,6 +7,76 @@ import argparse
 
 from isaaclab_arena.examples.example_environments.example_environment_base import ExampleEnvironmentBase
 
+
+import sys
+from pathlib import Path
+
+# 指向包含 isaacsim_arena_common 这一目录的父路径，例如 /path/to/lerobot_code
+# 用法: export ISAACSIM_ARENA_COMMON_ROOT=/path/to/lerobot_code
+# 也可设 LEROBOT_CODE_ROOT（同上含义）
+import os
+for _env_key in ("ISAACSIM_ARENA_COMMON_ROOT", "LEROBOT_CODE_ROOT"):
+    _root = os.environ.get(_env_key, "").strip()
+    if _root:
+        _p = Path(_root).expanduser().resolve()
+        if str(_p) not in sys.path:
+            sys.path.insert(0, str(_p))
+        break
+
+from isaacsim_arena_common.object_position import *
+
+
+def _scene_cam_profile_for_background(background: str) -> str:
+    """选用 object_position 中已有 scene_cam_* 条目的 profile（与 --background 名称一致）。"""
+    if background in scene_cam_position and background in scene_cam_rotation:
+        return background
+    return "office_204"
+
+
+def build_custom_env_scene_camera_cfg(profile: str):
+    """固定场景相机（非机械臂本体）：prim 与位姿来自 object_position.scene_cam_*。"""
+    from dataclasses import MISSING
+
+    from isaaclab import sim as sim_utils
+    from isaaclab.sensors import CameraCfg, TiledCameraCfg
+    from isaaclab.utils import configclass
+
+    from isaaclab_arena.utils.pose import Pose
+
+    if profile not in scene_cam_position or profile not in scene_cam_rotation:
+        profile = "office_204"
+
+    @configclass
+    class _CustomEnvSceneCameraCfg:
+        scene_cam: CameraCfg | TiledCameraCfg = MISSING
+
+        def __post_init__(self):
+            is_tiled_camera = True
+            CameraClass = TiledCameraCfg if is_tiled_camera else CameraCfg
+            OffsetClass = CameraClass.OffsetCfg
+            scene_cam_offset = Pose(
+                position_xyz=scene_cam_position[profile],
+                rotation_wxyz=scene_cam_rotation[profile],
+            )
+            scene_prim = scene_cam_prim_path.get(profile, scene_cam_prim_path["office_204"])
+            scene_cam_common_kwargs = dict(
+                prim_path=f"{{ENV_REGEX_NS}}/{scene_prim}",
+                update_period=0.0,
+                height=1024,
+                width=1024,
+                data_types=["rgb"],
+                spawn=sim_utils.PinholeCameraCfg(focal_length=scene_cam_focal_length[profile], clipping_range=(0.01, 1.0e5)),
+            )
+            scene_cam_offset_real = OffsetClass(
+                pos=scene_cam_offset.position_xyz,
+                rot=scene_cam_offset.rotation_wxyz,
+                convention="opengl",
+            )
+            self.scene_cam = CameraClass(offset=scene_cam_offset_real, **scene_cam_common_kwargs)
+
+    return _CustomEnvSceneCameraCfg()
+
+
 # NOTE(alexmillane, 2025.09.04): There is an issue with type annotation in this file.
 # We cannot annotate types which require the simulation app to be started in order to
 # import, because this file is used to retrieve CLI arguments, so it must be imported
@@ -76,13 +146,25 @@ class CustomEnvironment(ExampleEnvironmentBase):
                     )
                 }
 
-        background = self.asset_registry.get_asset_by_name("packing_table")()
+        background = self.asset_registry.get_asset_by_name(args_cli.background)()
         pick_up_object = self.asset_registry.get_asset_by_name(args_cli.object)()
         # franka_libero 定义了两个相机（腕部 + 场景），需启用相机才会加入 scene
         enable_cameras = getattr(args_cli, "enable_cameras", False)
         if getattr(args_cli, "embodiment", None) == "franka_libero":
             enable_cameras = True  # 使用 franka_libero 时默认开启双相机
         embodiment = self.asset_registry.get_asset_by_name(args_cli.embodiment)(enable_cameras=enable_cameras)
+        # 场景固定相机属于环境/背景，不属于 embodiment：在腕部相机 cfg 上合并 scene_cam
+        # 必须合并场景相机
+        if enable_cameras:
+            from isaaclab_arena.utils.configclass import combine_configclass_instances
+
+            profile = _scene_cam_profile_for_background(args_cli.background)
+            scene_cam_cfg = build_custom_env_scene_camera_cfg(profile)
+            embodiment.camera_config = combine_configclass_instances(
+                "CameraCfg",
+                embodiment.camera_config,
+                scene_cam_cfg,
+            )
 
         if args_cli.teleop_device is not None:
             teleop_device = self.device_registry.get_device_by_name(args_cli.teleop_device)()
@@ -91,14 +173,14 @@ class CustomEnvironment(ExampleEnvironmentBase):
 
         pick_up_object.set_initial_pose(
             Pose(
-                position_xyz=(0.7, 0.20, 0.15),
-                rotation_wxyz=(0.5, 0.5, -0.5, 0.5),
+                position_xyz=object_init_position[background.name][pick_up_object.name],
+                rotation_wxyz=object_rotation_dict[pick_up_object.name],
             )
         )
         embodiment.set_initial_pose(
             Pose(
-                position_xyz=(-0.25, 0.0, 0.0),
-                rotation_wxyz=(1, 0, 0, 0),
+                position_xyz=embodiment_init_position[background.name][args_cli.embodiment],
+                rotation_wxyz=embodiment_init_rotation[background.name][args_cli.embodiment],
             )
         )
 
@@ -109,9 +191,13 @@ class CustomEnvironment(ExampleEnvironmentBase):
         # # the lid via the UI.
         # # TODO(alexmillane, 2025.09.08): Separate the self into prims so we can reference
         # # the bottom shelf specifically.
+        # prim_path 必须与 parent_asset.name 一致：Isaac Lab 下为 {ENV_REGEX_NS}/<background.name>/<USD 内相对路径>
+        # packing_table 默认子 prim 为 container_h20；其它背景需在 USD 中确认篮子 prim，并用 --destination_prim 指定
+        _dest_prim = getattr(args_cli, "destination_prim", None) or "container_h20"
+        #print(f"{{ENV_REGEX_NS}}/{background.name}/{_dest_prim}")
         destination_location = ObjectReference(
             name="destination_location",
-            prim_path="{ENV_REGEX_NS}/packing_table/container_h20",
+            prim_path=f"{{ENV_REGEX_NS}}/{background.name}/{_dest_prim}",
             parent_asset=background,
         )
 
@@ -125,7 +211,7 @@ class CustomEnvironment(ExampleEnvironmentBase):
                 name="light_rig_grey_studio",
                 prim_path="/World/LightRigGreyStudio",
                 dome_light_cfg=sim_utils.DomeLightCfg(
-                    intensity=4000.0,
+                    intensity=2000.0,
                     exposure=0.0,
                     color=(0.75, 0.75, 0.75),
                     visible_in_primary_ray=False,
@@ -152,19 +238,30 @@ class CustomEnvironment(ExampleEnvironmentBase):
             embodiment=embodiment,
             scene=scene,
             task=PickAndPlaceTask(pick_up_object, destination_location, background),
+            #task=DummyTask(),
             teleop_device=teleop_device,
         )
         return isaaclab_arena_environment
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--background", type=str, default="packing_table")
+        parser.add_argument(
+            "--destination_prim",
+            type=str,
+            default="container_h20",
+            help=(
+                "篮子/放置区在背景 USD 里相对 defaultPrim 的 prim 路径（单段或多段，如 container_h20 或 Meshes/basket）。"
+                "须能在该 USD 中解析；packing_table 场景默认为 container_h20。"
+            ),
+        )
         parser.add_argument("--object", type=str, default="sugar_box")
         parser.add_argument("--embodiment", type=str, default="custom")
         parser.add_argument(
             "--lighting",
             type=str,
             choices=["stage_lights", "grey_studio"],
-            default="grey_studio",
+            default="stage_lights",
             help="Lighting mode for sensor renders. 'stage_lights' uses lights authored in the stage. "
             "'grey_studio' adds a soft neutral dome light and disables other stage lights (minimize shadows).",
         )

@@ -40,27 +40,9 @@ from isaaclab_arena.embodiments.custom.observations import gripper_pos
 from isaaclab_arena.utils.pose import Pose
 
 
-def se3_action_world_to_base(action: torch.Tensor, root_quat_w: torch.Tensor) -> torch.Tensor:
-    """将 Se3 键盘的 7D action 从世界系转到机器人 base 系，使 W/A/S/D/Q/E 对应世界前/左/后/右/上/下。
-
-    若使用 Se3Keyboard 时末端运动方向“诡异”，在 env.step(actions) 前对 action 调用此函数即可。
-    action: (7,) 或 (N,7)，前 6 维 (dx,dy,dz, rotvec_x,y,z)，第 7 维 gripper。
-    root_quat_w: (4,) wxyz，base 在世界系下的四元数。
-    """
-    need_squeeze = action.dim() == 1
-    if need_squeeze:
-        action = action.unsqueeze(0)
-    if root_quat_w.dim() == 1:
-        root_quat_w = root_quat_w.unsqueeze(0)
-    R = PoseUtils.matrix_from_quat(PoseUtils.quat_inv(root_quat_w))
-    dpos = action[:, :3]
-    drot = action[:, 3:6]
-    dpos_b = torch.bmm(R, dpos.unsqueeze(-1)).squeeze(-1)
-    drot_b = torch.bmm(R, drot.unsqueeze(-1)).squeeze(-1)
-    out = torch.cat([dpos_b, drot_b, action[:, 6:7]], dim=-1)
-    if need_squeeze:
-        out = out.squeeze(0)
-    return out.to(device=action.device, dtype=action.dtype)
+def _joint_pos_round_2dp(t: torch.Tensor) -> torch.Tensor:
+    """关节角保留两位小数（与物体位置 round(x, 2) 一致）。"""
+    return (t * 100.0).round() / 100.0
 
 
 def set_default_joint_pose(
@@ -82,6 +64,7 @@ def set_default_joint_pose(
             f"default_pose length {default_pose.numel()} != robot joint count {num_joints}"
         )
     default_pose = default_pose.unsqueeze(0).repeat(len(env_ids), 1)
+    default_pose = _joint_pos_round_2dp(default_pose)
     zero_vel = torch.zeros_like(default_pose)
     robot.write_joint_state_to_sim(position=default_pose, velocity=zero_vel, env_ids=env_ids)
     robot.set_joint_position_target(default_pose, env_ids=env_ids)
@@ -106,6 +89,8 @@ def randomize_joint_by_gaussian_offset(
     lower = robot.data.joint_limits[env_ids, :, 0]
     upper = robot.data.joint_limits[env_ids, :, 1]
     new_joint_pos = torch.clamp(joint_pos, lower, upper)
+    new_joint_pos = _joint_pos_round_2dp(new_joint_pos)
+    new_joint_pos = torch.clamp(new_joint_pos, lower, upper)
     zero_vel = torch.zeros_like(new_joint_pos)
     robot.write_joint_state_to_sim(position=new_joint_pos, velocity=zero_vel, env_ids=env_ids)
     robot.set_joint_position_target(new_joint_pos, env_ids=env_ids)
@@ -137,23 +122,31 @@ class CustomEmbodiment(EmbodimentBase):
         return scene_config
 
 
-# 夹爪相机与场景相机偏移（与 Franka Libero 风格一致）
-# 腕部相机姿态：欧拉 X=0°, Y=-55°, Z=-90° -> wxyz 四元数
+@register_asset
+class BigCustomEmbodiment(CustomEmbodiment):
+    """Embodiment for the Big Custom robot."""
+
+    name = "big_custom"
+
+    def __init__(self, enable_cameras: bool = False, initial_pose: Pose | None = None):
+        super().__init__(enable_cameras, initial_pose)
+        self.scene_config = BigCustomSceneCfg()
+
+
+# 腕部相机相对末端（与 Franka Libero 风格一致）
+# 欧拉 X=0°, Y=-55°, Z=-90° -> wxyz 四元数
 _WRIST_CAM_OFFSET = Pose(position_xyz=(0.0, 0.0, 0.03), rotation_wxyz=(0.6272, 0.3256, -0.3256, -0.6272))
-_SCENE_CAM_OFFSET = Pose(position_xyz=(0.3, 0.25884, 1.3), rotation_wxyz=(0.7071, 0.0, 0.0, -0.7071))
 
 
 @configclass
-class CustomCameraCfg:
-    """Configuration for custom robot cameras (wrist + scene)."""
+class CustomCameraCfg():
+    """机械臂腕部相机（场景固定相机由 example environment 单独提供并合并）。"""
 
     wrist_cam: CameraCfg | TiledCameraCfg = MISSING
-    scene_cam: CameraCfg | TiledCameraCfg = MISSING
 
     def __post_init__(self):
         is_tiled_camera = getattr(self, "_is_tiled_camera", True)
         wrist_cam_offset = getattr(self, "_wrist_camera_offset", _WRIST_CAM_OFFSET)
-        scene_cam_offset = getattr(self, "_scene_camera_offset", _SCENE_CAM_OFFSET)
         CameraClass = TiledCameraCfg if is_tiled_camera else CameraCfg
         OffsetClass = CameraClass.OffsetCfg
         wrist_cam_common_kwargs = dict(
@@ -164,26 +157,12 @@ class CustomCameraCfg:
             data_types=["rgb"],
             spawn=sim_utils.PinholeCameraCfg(focal_length=18.15, clipping_range=(0.01, 1.0e5)),
         )
-        scene_cam_common_kwargs = dict(
-            prim_path="{ENV_REGEX_NS}/SceneCam",
-            update_period=0.0,
-            height=1024,
-            width=1024,
-            data_types=["rgb"],
-            spawn=sim_utils.PinholeCameraCfg(focal_length=9, clipping_range=(0.01, 1.0e5)),
-        )
         wrist_cam_offset_real = OffsetClass(
             pos=wrist_cam_offset.position_xyz,
             rot=wrist_cam_offset.rotation_wxyz,
             convention="opengl",
         )
-        scene_cam_offset_real = OffsetClass(
-            pos=scene_cam_offset.position_xyz,
-            rot=scene_cam_offset.rotation_wxyz,
-            convention="opengl",
-        )
         self.wrist_cam = CameraClass(offset=wrist_cam_offset_real, **wrist_cam_common_kwargs)
-        self.scene_cam = CameraClass(offset=scene_cam_offset_real, **scene_cam_common_kwargs)
 
 
 @configclass
@@ -199,8 +178,8 @@ class CustomSceneCfg:
             joint_pos={".*": 0.0}               # 可选初始关节状态
         ),
         spawn=UsdFileCfg(
-            usd_path="/home/Zhaoweipeng/lerobot_code/usd/piper_description1/test.usd",
-            scale=(2.0, 2.0, 2.0),       # 缩放
+            usd_path="/home/weipeng/lerobot_code/usd/piper_description1/test.usd",
+            scale=(1.0, 1.0, 1.0),       # 缩放
             activate_contact_sensors=False,
         ),
         actuators={
@@ -258,6 +237,39 @@ class CustomSceneCfg:
         marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
         marker_cfg.prim_path = "/Visuals/FrameTransformer"
         self.ee_frame.visualizer_cfg = marker_cfg
+
+
+@configclass
+class BigCustomSceneCfg(CustomSceneCfg):
+    """Additions to the scene configuration coming from the Custom embodiment."""
+
+    # The robot (link1-6: revolute arm, link7-8: gripper; aligned with Franka pattern)
+    robot: ArticulationCfg = ArticulationCfg(
+        prim_path="{ENV_REGEX_NS}/Robot",
+        init_state=ArticulationCfg.InitialStateCfg(
+            pos=[0.0, 0.0, 0.0],         # 世界坐标系位置
+            rot=[1.0, 0.0, 0.0, 0.0],    # 四元数 wxyz
+            joint_pos={".*": 0.0}               # 可选初始关节状态
+        ),
+        spawn=UsdFileCfg(
+            usd_path="/home/weipeng/lerobot_code/usd/piper_description1/test.usd",
+            scale=(2.0, 2.0, 2.0),       # 缩放
+            activate_contact_sensors=False,
+        ),
+        actuators={
+            "arm": ImplicitActuatorCfg(
+                joint_names_expr=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+                stiffness=15000,
+                damping=100,
+            ),
+            "gripper": ImplicitActuatorCfg(
+                joint_names_expr=["joint7", "joint8"],
+                stiffness=40000,
+                damping=200,
+            ),
+        }
+    )
+
 
 
 # 抑制末端“前后摆动、按 S 画圈”：加大 IK 阻尼、减小每步位移、提高关节阻尼。

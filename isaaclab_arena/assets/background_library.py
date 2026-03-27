@@ -21,6 +21,7 @@ class LibraryBackground(Background):
     usd_path: str
     initial_pose: Pose
     object_min_z: float
+    scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
     def __init__(self, **kwargs):
         super().__init__(
@@ -29,6 +30,7 @@ class LibraryBackground(Background):
             usd_path=self.usd_path,
             initial_pose=self.initial_pose,
             object_min_z=self.object_min_z,
+            scale=self.scale,
             **kwargs,
         )
 
@@ -86,6 +88,31 @@ class PackingTableBackground(LibraryBackground):
 
 
 @register_asset
+class Office204Background(LibraryBackground):
+    """
+    Encapsulates the background scene for the packing table.
+    """
+
+    name = "office_204"
+    tags = ["background"]
+    usd_path = f"/home/weipeng/lerobot_code/usd/office_204_new.usd"
+    #scale = (0.3325, 0.3325, 0.3325)
+    # 世界系外旋：先绕 X -90°，再绕 Y -0.5°，Z 0° -> wxyz（与 galileo 等一致为 wxyz）
+    # initial_pose = Pose(
+    #     position_xyz=(0.0, 0.0, 1.4),
+    #     rotation_wxyz=(0.70711, -0.70711, -0.00309, -0.00309),
+    # )
+    initial_pose = Pose(
+        position_xyz=(0.0, 0.0, 0.0),
+        rotation_wxyz=(1.0, 0.0, 0.0, 0.0),
+    )
+    object_min_z = 0.0
+
+    def __init__(self):
+        super().__init__()
+
+
+@register_asset
 class GalileoBackground(LibraryBackground):
     """
     Encapsulates the background scene for the galileo room.
@@ -95,7 +122,7 @@ class GalileoBackground(LibraryBackground):
     tags = ["background"]
     usd_path = f"{ISAACLAB_NUCLEUS_DIR}/Arena/assets/background_library/galileo_simplified/galileo_simplified.usd"
     initial_pose = Pose(position_xyz=(4.420, 1.408, -0.795), rotation_wxyz=(1.0, 0.0, 0.0, 0.0))
-    object_min_z = -0.2
+    object_min_z = 0.5
 
     def __init__(self):
         super().__init__()

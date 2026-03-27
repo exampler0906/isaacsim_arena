@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
+from isaaclab.sensors.contact_sensor.contact_sensor_cfg import ContactSensorCfg
 
 from isaaclab_arena.affordances.openable import Openable
 from isaaclab_arena.affordances.pressable import Pressable
@@ -63,7 +64,7 @@ class CrackerBoxSmall(LibraryObject):
     name = "cracker_box_small"
     tags = ["object"]
     usd_path = "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned_Physics/003_cracker_box.usd"
-    scale = (0.8, 0.8, 0.8)
+    scale = (0.6, 0.6, 0.6)
 
     def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
         super().__init__(prim_path=prim_path, initial_pose=initial_pose)
@@ -107,6 +108,44 @@ class SugarBox(LibraryObject):
     name = "sugar_box"
     tags = ["object"]
     usd_path = "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd"
+
+    def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
+        super().__init__(prim_path=prim_path, initial_pose=initial_pose)
+
+
+@register_asset
+class CustomBox(LibraryObject):
+
+    name = "custom_box"
+    tags = ["object"]
+    usd_path = "/home/weipeng/lerobot_code/usd/custom_box/custom_box_1.usd"
+    # ContactSensor 只会在 prim_path 指向的「最后一个 prim」上查找 PhysxContactReportAPI。
+    # activate_contact_sensors 只会给带 RigidBodyAPI 的 prim 加 ContactReport；若刚体在子节点上，
+    # 这里必须写成该刚体的完整路径（仍可用 {ENV_REGEX_NS}）。在 Isaac 里展开 Stage，找到带
+    # Physx Contact Report 的刚体 prim，把路径对齐到此处。
+    contact_sensor_prim_path: str = "{ENV_REGEX_NS}/custom_box/custom_box"
+
+    def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
+        super().__init__(prim_path=prim_path, initial_pose=initial_pose)
+
+    def get_contact_sensor_cfg(self, contact_against_prim_paths: list[str] | None = None) -> ContactSensorCfg:
+        return ContactSensorCfg(
+            prim_path=self.contact_sensor_prim_path,
+            filter_prim_paths_expr=contact_against_prim_paths or [],
+        )
+
+
+
+@register_asset
+class SmallSugarBox(LibraryObject):
+    """
+    Encapsulates the pick-up object config for a pick-and-place environment.
+    """
+
+    name = "small_sugar_box"
+    tags = ["object"]
+    usd_path = "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd"
+    scale = (0.8, 0.8, 0.8)
 
     def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
         super().__init__(prim_path=prim_path, initial_pose=initial_pose)
