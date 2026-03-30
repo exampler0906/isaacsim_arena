@@ -237,9 +237,9 @@ class CustomEnvironment(ExampleEnvironmentBase):
             def _disable_other_lights_startup(env, env_ids=None):
                 _disable_all_lights_except({"/World/LightRigGreyStudio"})
 
+            # FIXME：临时结局物体在环境中初始状态下不可见的问题，后续需要进一步定位问题的具体原因
             # 与 USD 下物体 prim 名一致（通常等于 --object / 资产 name）
             _object_name_for_gauss = pick_up_object.name
-
             def _hide_and_show_gauss(env, env_ids=None):
                 """刷新抓取物在视口中的显示（克隆/首帧后偶发不画，手动点小眼睛会好）。
 
