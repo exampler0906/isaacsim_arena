@@ -26,6 +26,17 @@ for _env_key in ("ISAACSIM_ARENA_COMMON_ROOT", "LEROBOT_CODE_ROOT"):
 from isaacsim_arena_common.object_position import *
 
 
+def _resolve_viewer_lookat_offset(args_cli: argparse.Namespace):
+    """视口 eye = 物体初始位姿 + offset。CLI --viewer_offset 优先，否则按 background 查 viewer_lookat_offset。"""
+    import numpy as np
+
+    bg = getattr(args_cli, "background", None) or "packing_table"
+    off = viewer_lookat_offset.get(bg)
+    if off is not None:
+        return np.array(off, dtype=np.float64)
+    return None
+
+
 def _scene_cam_profile_for_background(background: str) -> str:
     """选用 object_position 中已有 scene_cam_* 条目的 profile（与 --background 名称一致）。"""
     if background in scene_cam_position and background in scene_cam_rotation:
@@ -222,22 +233,91 @@ class CustomEnvironment(ExampleEnvironmentBase):
             from isaaclab.managers import EventTermCfg
             from isaaclab.utils import configclass
 
+            
             def _disable_other_lights_startup(env, env_ids=None):
                 _disable_all_lights_except({"/World/LightRigGreyStudio"})
 
+            # 与 USD 下物体 prim 名一致（通常等于 --object / 资产 name）
+            _object_name_for_gauss = pick_up_object.name
+
+            def _hide_and_show_gauss(env, env_ids=None):
+                """刷新抓取物在视口中的显示（克隆/首帧后偶发不画，手动点小眼睛会好）。
+
+                仅用 ``visibility`` 在同一帧内 hide+show 往往不足以触发 Hydra/RTX 重绘；
+                这里改为 **post_update 分两帧**：先 ``invisible`` 再 ``inherited``，并对 **刚体根**
+                与常见子路径（含 ``.../gauss``）分别尝试，与 Stage 眼睛改的是同一 ``visibility`` 属性。
+
+                若仍无效：检查该 USD 是否用自定义渲染（非 Imageable）、或需在 DCC 里打开 **defaultPrim**、
+                **extent**、材质路径等。
+                """
+                try:
+                    import omni.kit.app
+                    import omni.usd
+                    from pxr import UsdGeom
+                except Exception:
+                    return
+
+                obj = _object_name_for_gauss
+                _post_handle = [None]
+                state = {"frame": 0}
+
+                def _candidate_paths_for_env(env_index: int) -> list[str]:
+                    """Isaac Lab 刚体常见为 /World/envs/env_i/<name>；子级随 USD 结构追加。"""
+                    base = f"/World/envs/env_{env_index}/{obj}"
+                    return [
+                        #base,
+                        f"{base}/{obj}/gauss",
+                        #f"{base}/{obj}/{obj}/gauss",
+                    ]
+
+                def _set_visibility_on_candidates(vis_token):
+                    stage = omni.usd.get_context().get_stage()
+                    if stage is None:
+                        return
+                    n = int(getattr(env, "num_envs", 1))
+                    for i in range(n):
+                        for path in _candidate_paths_for_env(i):
+                            prim = stage.GetPrimAtPath(path)
+                            if not prim.IsValid():
+                                continue
+                            try:
+                                UsdGeom.Imageable(prim).GetVisibilityAttr().Set(vis_token)
+                            except Exception:
+                                pass
+
+                def _on_post_update(_event):
+                    state["frame"] += 1
+                    if state["frame"] == 1:
+                        _set_visibility_on_candidates(UsdGeom.Tokens.invisible)
+                        return
+                    if state["frame"] == 2:
+                        _set_visibility_on_candidates(UsdGeom.Tokens.inherited)
+                        if _post_handle[0] is not None:
+                            _post_handle[0].unsubscribe()
+                            _post_handle[0] = None
+
+                app = omni.kit.app.get_app_interface()
+                _post_handle[0] = app.get_post_update_event_stream().create_subscription_to_pop(_on_post_update)
+
             @configclass
-            class LightingEventsCfg:
+            class EventsCfg:
                 disable_other_lights: EventTermCfg = EventTermCfg(func=_disable_other_lights_startup, mode="startup")
+                hide_and_show_gauss: EventTermCfg = EventTermCfg(func=_hide_and_show_gauss, mode="reset")
 
         scene = Scene(assets=assets)
         if True:
         #if getattr(args_cli, "lighting", "stage_lights") == "grey_studio":
-            scene.events_cfg = LightingEventsCfg()
+            scene.events_cfg = EventsCfg()
         isaaclab_arena_environment = IsaacLabArenaEnvironment(
             name=self.name,
             embodiment=embodiment,
             scene=scene,
-            task=PickAndPlaceTask(pick_up_object, destination_location, background),
+            task=PickAndPlaceTask(
+                pick_up_object,
+                destination_location,
+                background,
+                viewer_lookat_offset=_resolve_viewer_lookat_offset(args_cli),
+            ),
             #task=DummyTask(),
             teleop_device=teleop_device,
         )

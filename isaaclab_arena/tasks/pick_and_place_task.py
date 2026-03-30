@@ -42,11 +42,14 @@ class PickAndPlaceTask(TaskBase):
         destination_location: Asset,
         background_scene: Asset,
         episode_length_s: float | None = None,
+        viewer_lookat_offset: np.ndarray | None = None,
     ):
         super().__init__(episode_length_s=episode_length_s)
         self.pick_up_object = pick_up_object
         self.background_scene = background_scene
         self.destination_location = destination_location
+        # viewport：eye = 物体初始位置 + offset；None 时用 [-1.5,-1.5,1.5]（模长更小 ≈ 更近/放大）
+        self._viewer_lookat_offset = viewer_lookat_offset
         self.scene_config = SceneCfg(
             pick_up_object_contact_sensor=self.pick_up_object.get_contact_sensor_cfg(
                 contact_against_prim_paths=[self.destination_location.get_prim_path()],
@@ -100,10 +103,9 @@ class PickAndPlaceTask(TaskBase):
         return [SuccessRateMetric(), ObjectMovedRateMetric(self.pick_up_object)]
 
     def get_viewer_cfg(self) -> ViewerCfg:
-        return get_viewer_cfg_look_at_object(
-            lookat_object=self.pick_up_object,
-            offset=np.array([-1.5, -1.5, 1.5]),
-        )
+        default = np.array([-1.5, -1.5, 1.5], dtype=np.float64)
+        off = self._viewer_lookat_offset if self._viewer_lookat_offset is not None else default
+        return get_viewer_cfg_look_at_object(lookat_object=self.pick_up_object, offset=off)
 
 
 @configclass
