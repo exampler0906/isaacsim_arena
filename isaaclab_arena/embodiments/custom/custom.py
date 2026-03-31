@@ -36,8 +36,16 @@ from isaaclab_tasks.manager_based.manipulation.stack.mdp.observations import ee_
 from isaaclab_arena.assets.register import register_asset
 from isaaclab_arena.embodiments.common.mimic_utils import get_rigid_and_articulated_object_poses
 from isaaclab_arena.embodiments.embodiment_base import EmbodimentBase
-from isaaclab_arena.embodiments.custom.observations import gripper_pos
+from isaaclab_arena.embodiments.custom.gripper_normalized_action import GripperNormalizedActionCfg
+from isaaclab_arena.embodiments.custom.observations import gripper_open_normalized, gripper_pos
 from isaaclab_arena.utils.pose import Pose
+
+# 仅手臂 6 关节：与「全关节 joint_pos_rel 再取 [..., :-2]」等价，且由 joint_names 显式约束顺序
+_ARM_JOINT_ASSET_CFG = SceneEntityCfg(
+    "robot",
+    joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+    preserve_order=True,
+)
 
 
 def _joint_pos_round_2dp(t: torch.Tensor) -> torch.Tensor:
@@ -105,7 +113,7 @@ class CustomEmbodiment(EmbodimentBase):
     def __init__(self, enable_cameras: bool = False, initial_pose: Pose | None = None):
         super().__init__(enable_cameras, initial_pose)
         self.scene_config = CustomSceneCfg()
-        self.action_config = CustomJointPositionActionsCfg()
+        self.action_config = CustomJointPositionGripperScalarActionsCfg()
         self.observation_config = CustomObservationsCfg()
         self.event_config = CustomEventCfg()
         self.mimic_env = CustomMimicEnv
@@ -152,8 +160,8 @@ class CustomCameraCfg():
         wrist_cam_common_kwargs = dict(
             prim_path="{ENV_REGEX_NS}/Robot/piper_description/camera_link/WristCam",
             update_period=0.0,
-            height=1024,
-            width=1024,
+            height=480,
+            width=640,
             data_types=["rgb"],
             spawn=sim_utils.PinholeCameraCfg(focal_length=18.15, clipping_range=(0.01, 1.0e5)),
         )
@@ -186,12 +194,16 @@ class CustomSceneCfg:
             "arm": ImplicitActuatorCfg(
                 joint_names_expr=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
                 stiffness=15000,
-                damping=100,
+                # 略增阻尼：水平移动时减小腕部链对夹爪的激励
+                damping=180,
             ),
             "gripper": ImplicitActuatorCfg(
                 joint_names_expr=["joint7", "joint8"],
-                stiffness=40000,
-                damping=200,
+                # 高刚度 + 原 damping=200 易在水平加速下欠阻尼“甩动”；提高 d 抑制振荡
+                stiffness=38000,
+                damping=1200,
+                # 略增关节等效惯量，利于 PhysX 隐式求解稳定、抑制高频抖
+                armature=0.02,
             ),
         }
     )
@@ -260,12 +272,13 @@ class BigCustomSceneCfg(CustomSceneCfg):
             "arm": ImplicitActuatorCfg(
                 joint_names_expr=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
                 stiffness=15000,
-                damping=100,
+                damping=180,
             ),
             "gripper": ImplicitActuatorCfg(
                 joint_names_expr=["joint7", "joint8"],
-                stiffness=40000,
-                damping=200,
+                stiffness=38000,
+                damping=1200,
+                armature=0.02,
             ),
         }
     )
@@ -324,6 +337,22 @@ class CustomJointPositionActionsCfg:
 
 
 @configclass
+class CustomJointPositionGripperScalarActionsCfg:
+    """6 维手臂关节位置 + 1 维夹爪开合 [0,1]（0=闭合，1=张开，与 Binary 配置的 open/close 一致）。"""
+
+    joint_position_action: ActionTermCfg = JointPositionActionCfg(
+        asset_name="robot",
+        joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+    )
+    gripper_open_action: ActionTermCfg = GripperNormalizedActionCfg(
+        asset_name="robot",
+        joint_names=["joint7", "joint8"],
+        open_command_expr={"joint7": 0.035, "joint8": -0.035},
+        close_command_expr={"joint7": 0.0, "joint8": 0.0},
+    )
+
+
+@configclass
 class CustomObservationsCfg:
     """Observation specifications for the MDP."""
 
@@ -333,17 +362,22 @@ class CustomObservationsCfg:
 
         actions = ObsTerm(func=mdp_isaac_lab.last_action)
         joint_pos = ObsTerm(func=mdp_isaac_lab.joint_pos_rel)
+        # 不能对 ObsTerm 做切片；用 asset_cfg 限定关节即得到「去掉最后两维夹爪」的 6 维手臂
+        joint_pos_less = ObsTerm(
+            func=mdp_isaac_lab.joint_pos_rel,
+            params={"asset_cfg": _ARM_JOINT_ASSET_CFG},
+        )
         joint_vel = ObsTerm(func=mdp_isaac_lab.joint_vel_rel)
         eef_pos = ObsTerm(func=ee_frame_pos)
         eef_quat = ObsTerm(func=ee_frame_quat)
         gripper_pos = ObsTerm(func=gripper_pos)
+        gripper_open = ObsTerm(func=gripper_open_normalized)
 
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = False
 
     policy: PolicyCfg = PolicyCfg()
-
 
 @configclass
 class CustomEventCfg:
@@ -361,8 +395,8 @@ class CustomEventCfg:
         func=randomize_joint_by_gaussian_offset,
         mode="reset",
         params={
-            "mean": 0.0,
-            "std": 0.0,
+            "mean": 0.2,
+            "std": 0.2,
             "asset_cfg": SceneEntityCfg("robot"),
         },
     )

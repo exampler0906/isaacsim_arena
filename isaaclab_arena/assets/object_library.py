@@ -118,7 +118,7 @@ class CustomBox(LibraryObject):
 
     name = "custom_box"
     tags = ["object"]
-    usd_path = "/home/weipeng/lerobot_code/usd/custom_box/custom_box_1.usd"
+    usd_path = "/home/weipeng/lerobot_code/usd/custom_box/custom_box_2.usd"
     # ContactSensor 只会在 prim_path 指向的「最后一个 prim」上查找 PhysxContactReportAPI。
     # activate_contact_sensors 只会给带 RigidBodyAPI 的 prim 加 ContactReport；若刚体在子节点上，
     # 这里必须写成该刚体的完整路径（仍可用 {ENV_REGEX_NS}）。在 Isaac 里展开 Stage，找到带
@@ -133,6 +133,17 @@ class CustomBox(LibraryObject):
             prim_path=self.contact_sensor_prim_path,
             filter_prim_paths_expr=contact_against_prim_paths or [],
         )
+
+
+@register_asset
+class CustomPackage(LibraryObject):
+
+    name = "custom_package"
+    tags = ["object"]
+    usd_path = "/home/weipeng/lerobot_code/usd/package01.usd"
+
+    def __init__(self, prim_path: str | None = None, initial_pose: Pose | None = None):
+        super().__init__(prim_path=prim_path, initial_pose=initial_pose)
 
 
 

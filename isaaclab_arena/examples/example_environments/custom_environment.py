@@ -73,8 +73,8 @@ def build_custom_env_scene_camera_cfg(profile: str):
             scene_cam_common_kwargs = dict(
                 prim_path=f"{{ENV_REGEX_NS}}/{scene_prim}",
                 update_period=0.0,
-                height=1024,
-                width=1024,
+                height=480,
+                width=640,
                 data_types=["rgb"],
                 spawn=sim_utils.PinholeCameraCfg(focal_length=scene_cam_focal_length[profile], clipping_range=(0.01, 1.0e5)),
             )
@@ -181,7 +181,6 @@ class CustomEnvironment(ExampleEnvironmentBase):
             teleop_device = self.device_registry.get_device_by_name(args_cli.teleop_device)()
         else:
             teleop_device = None
-
         pick_up_object.set_initial_pose(
             Pose(
                 position_xyz=object_init_position[background.name][pick_up_object.name],
