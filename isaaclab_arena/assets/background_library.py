@@ -96,12 +96,26 @@ class Office204Background(LibraryBackground):
     name = "office_204"
     tags = ["background"]
     usd_path = f"/home/weipeng/lerobot_code/usd/office_204_new.usd"
-    #scale = (0.3325, 0.3325, 0.3325)
-    # 世界系外旋：先绕 X -90°，再绕 Y -0.5°，Z 0° -> wxyz（与 galileo 等一致为 wxyz）
-    # initial_pose = Pose(
-    #     position_xyz=(0.0, 0.0, 1.4),
-    #     rotation_wxyz=(0.70711, -0.70711, -0.00309, -0.00309),
-    # )
+
+    initial_pose = Pose(
+        position_xyz=(0.0, 0.0, 0.0),
+        rotation_wxyz=(1.0, 0.0, 0.0, 0.0),
+    )
+    object_min_z = 0.0
+
+    def __init__(self):
+        super().__init__()
+
+@register_asset
+class Office204BackgroundNew(LibraryBackground):
+    """
+    Encapsulates the background scene for the packing table.
+    """
+
+    name = "office_204_new"
+    tags = ["background"]
+    usd_path = f"/home/weipeng/lerobot_code/usd/office_204_new_new.usd"
+
     initial_pose = Pose(
         position_xyz=(0.0, 0.0, 0.0),
         rotation_wxyz=(1.0, 0.0, 0.0, 0.0),

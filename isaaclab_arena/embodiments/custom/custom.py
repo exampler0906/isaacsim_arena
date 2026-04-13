@@ -142,8 +142,11 @@ class BigCustomEmbodiment(CustomEmbodiment):
 
 
 # 腕部相机相对末端（与 Franka Libero 风格一致）
-# 欧拉 X=0°, Y=-55°, Z=-90° -> wxyz 四元数
-_WRIST_CAM_OFFSET = Pose(position_xyz=(0.0, 0.0, 0.03), rotation_wxyz=(0.6272, 0.3256, -0.3256, -0.6272))
+# 欧拉 内在 XYZ：X=180°, Y=-82°, Z=90° -> wxyz 四元数
+_WRIST_CAM_OFFSET = Pose(
+    position_xyz=(0.00238, 0.01075, -0.01541),
+    rotation_wxyz=(0.46390, 0.53366, -0.53366, -0.46390),
+)
 
 
 @configclass
